@@ -1,0 +1,8 @@
+fines_state.json
+result.csv
+result.json
+dump/
+dump_login/
+dump_error/
+__pycache__/
+.env

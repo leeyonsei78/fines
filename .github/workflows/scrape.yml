@@ -1,0 +1,69 @@
+name: FINES scrape
+
+on:
+  workflow_dispatch:        # Actions 탭에서 수동 실행(테스트용)
+    inputs:
+      debug:
+        description: "실패 시 화면 HTML을 아티팩트로 저장 (개인정보 포함 가능, 테스트 때만)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 0 * * 1-5"   # 평일 09:00 KST (UTC 00:00). 정기 실행이 필요 없으면 이 두 줄을 삭제
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Scrape
+        env:
+          FINES_ID: ${{ secrets.FINES_ID }}
+          FINES_PW: ${{ secrets.FINES_PW }}
+          FINES_ID_SEL: ${{ secrets.FINES_ID_SEL }}
+          FINES_PW_SEL: ${{ secrets.FINES_PW_SEL }}
+          FINES_LOGIN_BTN_SEL: ${{ secrets.FINES_LOGIN_BTN_SEL }}
+        run: python fss_scraper.py --ci --out result ${{ inputs.debug && '--dump-on-error' || '' }}
+
+      - name: Mail result
+        if: success()
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_ATTACH: ${{ secrets.MAIL_ATTACH }}
+        run: python send_mail.py --mode success
+
+      - name: Mail failure notice
+        if: failure()
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+        run: python send_mail.py --mode failure
+
+      - name: Upload debug dump
+        if: failure() && inputs.debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-dump
+          path: dump_error/
+          retention-days: 1
+          if-no-files-found: ignore
